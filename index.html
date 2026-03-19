@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wecode — Online Multiplayer</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     EKRAN 1: ANA MENÜ
+═══════════════════════════════════════════ -->
+<div id="ekran-menu" class="ekran aktif">
+  <div class="baslangic-icerik">
+    <div class="logo-alan">
+      <div class="logo-icon">W</div>
+      <h1 class="oyun-adi">WECODE</h1>
+      <p class="oyun-altyazi">Strateji &amp; Kodlama Oyunu</p>
+    </div>
+
+    <div class="isim-alani">
+      <label>Adın:</label>
+      <input type="text" id="giris-isim" placeholder="İsminizi girin" maxlength="12"/>
+    </div>
+
+    <div class="menu-butonlar">
+      <button class="buton-baslat" onclick="odaOlustur()">
+        🏠 Oda Oluştur
+      </button>
+      <div class="oda-katil-alani">
+        <input type="text" id="oda-kodu-input" placeholder="Oda kodu girin (örn: ABC123)" maxlength="6" style="text-transform:uppercase"/>
+        <button class="buton-katil" onclick="odayaKatil()">
+          🚪 Odaya Katıl
+        </button>
+      </div>
+      <button class="buton-kurallar" onclick="kurallariGoster()">
+        📖 Kurallar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     EKRAN 2: BEKLEME ODASI
+═══════════════════════════════════════════ -->
+<div id="ekran-bekleme" class="ekran">
+  <div class="bekleme-icerik">
+    <div class="logo-icon kucuk">W</div>
+    <h2>Oda Oluşturuldu!</h2>
+    <p>Bu kodu rakibine gönder:</p>
+    <div class="oda-kodu-goster" id="oda-kodu-goster">------</div>
+    <button class="buton-kopyala" onclick="koduKopyala()">📋 Kodu Kopyala</button>
+    <div class="bekleme-spin">
+      <div class="spinner"></div>
+      <p id="bekleme-mesaj">Rakip bekleniyor...</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     EKRAN 3: KURALLAR
+═══════════════════════════════════════════ -->
+<div id="ekran-kurallar" class="ekran">
+  <div class="kurallar-panel">
+    <h2>📖 Oyun Kuralları</h2>
+    <div class="kural-bolum">
+      <h3>🎯 Amaç</h3>
+      <p>Piyonunla <strong>rakibin WECODE taşına</strong> ulaş!</p>
+    </div>
+    <div class="kural-bolum">
+      <h3>🃏 Taşlar (Her oyuncuda 10 taş + 1 piyon)</h3>
+      <div class="tas-listesi">
+        <div class="tas-aciklama"><span class="tas-ornek">W</span> <strong>WECODE taşı (1)</strong> – Rakibin ulaşmaya çalıştığı hedef</div>
+        <div class="tas-aciklama"><span class="tas-ornek">✕</span> <strong>Çarpı taşı (3)</strong> – O kareye girilmez (engel)</div>
+        <div class="tas-aciklama"><span class="tas-ornek">↑</span> <strong>İleri ok (3)</strong> – Rakip piyonu ileri iter</div>
+        <div class="tas-aciklama"><span class="tas-ornek">←</span> <strong>Sola dön (2)</strong> – Rakip piyonu sola iter</div>
+        <div class="tas-aciklama"><span class="tas-ornek">→</span> <strong>Sağa dön (2)</strong> – Rakip piyonu sağa iter</div>
+      </div>
+    </div>
+    <div class="kural-bolum">
+      <h3>🔄 Bir Hamle</h3>
+      <p>Her turda şunlardan <strong>sadece birini</strong> yaparsın:<br/>
+      ♟ <strong>Piyonunu hareket ettir</strong> (1 kare: ileri/geri/sağ/sol)<br/>
+      🟧 <strong>Taş koy</strong> (yön taşları rakibinin piyonunu hareket ettirir)</p>
+    </div>
+    <div class="kural-bolum">
+      <h3>⚠️ Önemli</h3>
+      <p>• Yön taşları sadece <strong>rakip piyonun bitişiğine</strong> konulabilir<br/>
+      • Piyon hapsedilemez (en az 1 yol açık kalmalı)<br/>
+      • WECODE taşının etrafı tamamen kapatılamaz</p>
+    </div>
+    <div class="kural-bolum">
+      <h3>⚔️ Karşılaşma</h3>
+      <p>İki piyon yüz yüze gelince:<br/>
+      🦘 <strong>Üstünden atla</strong> (arkası boşsa)<br/>
+      ↔️ <strong>Yana git</strong> (yanlar boşsa)<br/>
+      ↗️ <strong>Çapraz git</strong> (iki yanı + rakibin arkası doluysa)</p>
+    </div>
+    <button class="buton-geri" onclick="geriDon()">← Geri</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     EKRAN 4: OYUN
+═══════════════════════════════════════════ -->
+<div id="ekran-oyun" class="ekran">
+
+  <!-- Bağlantı durumu bandı -->
+  <div id="baglanti-bandi" class="baglanti-bandi gizli">
+    ⚠️ Rakibin bağlantısı kesildi!
+  </div>
+
+  <!-- Üst bilgi -->
+  <div class="ust-cubuk">
+    <div class="oyuncu-bilgi" id="bilgi-oyuncu1">
+      <div class="oyuncu-avatar renk-kirmizi">♟</div>
+      <div>
+        <div class="oyuncu-adi" id="adi-oyuncu1">Oyuncu 1</div>
+        <div class="tas-sayisi" id="tas-oyuncu1">10 taş</div>
+      </div>
+    </div>
+    <div class="merkez-bilgi">
+      <div class="sira-gostergesi" id="sira-mesaj">Yükleniyor...</div>
+      <div class="adim-gostergesi" id="adim-mesaj"></div>
+    </div>
+    <div class="oyuncu-bilgi" id="bilgi-oyuncu2">
+      <div class="oyuncu-avatar renk-mor">♟</div>
+      <div>
+        <div class="oyuncu-adi" id="adi-oyuncu2">Oyuncu 2</div>
+        <div class="tas-sayisi" id="tas-oyuncu2">10 taş</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Oyun alanı -->
+  <div class="oyun-alani">
+    <div class="panel sol-panel" id="sol-panel">
+      <h3 id="sol-panel-baslik">Taşların</h3>
+      <div class="tas-secim-listesi" id="tas-listesi-oyuncu1"></div>
+    </div>
+    <div class="tahta-sarici">
+      <div class="tahta" id="tahta"></div>
+    </div>
+    <div class="panel sag-panel" id="sag-panel">
+      <h3 id="sag-panel-baslik">Rakip</h3>
+      <div class="tas-secim-listesi" id="tas-listesi-oyuncu2"></div>
+    </div>
+  </div>
+
+  <div class="alt-butonlar">
+    <button class="buton-kucuk" onclick="oyunuSifirla()">🔄 Yeni Oyun</button>
+    <button class="buton-kucuk" onclick="kurallariGoster()">📖 Kurallar</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     EKRAN 5: KAZANMA
+═══════════════════════════════════════════ -->
+<div id="ekran-kazanma" class="ekran">
+  <div class="kazanma-icerik">
+    <div class="konfeti" id="konfeti"></div>
+    <div class="kupa">🏆</div>
+    <h2 class="kazanan-mesaj" id="kazanan-mesaj">Tebrikler!</h2>
+    <p class="kazanan-alt" id="kazanan-alt">Oyunu kazandınız!</p>
+    <button class="buton-baslat" onclick="yenidenOyna()">🎮 Tekrar Oyna</button>
+    <button class="buton-kurallar" onclick="anaMenuye()">🏠 Ana Menü</button>
+  </div>
+</div>
+
+<!-- Sesler -->
+<audio id="ses-tas-koy"       src="sounds/tas-koy.mp3"       preload="auto"></audio>
+<audio id="ses-piyon-hareket" src="sounds/piyon-hareket.mp3" preload="auto"></audio>
+<audio id="ses-kazanma"       src="sounds/kazanma.mp3"       preload="auto"></audio>
+<audio id="ses-hata"          src="sounds/hata.mp3"          preload="auto"></audio>
+<audio id="ses-karsilasma"    src="sounds/karsilasma.mp3"    preload="auto"></audio>
+
+<!-- Socket.io kütüphanesi (sunucudan otomatik gelir) -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
