@@ -15,7 +15,7 @@ const io     = new Server(server, {
 });
 
 // Statik dosyaları sun (HTML, CSS, JS, sesler)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // Ana sayfa
 app.get('/', (req, res) => {
