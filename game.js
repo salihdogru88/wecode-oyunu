@@ -1,10 +1,9 @@
 // ============================================================
-//  WECODE MULTIPLAYER — OYUN MOTORU
-//  Socket.io ile online 2 kişilik oyun
+//  WECODE — TAM OYUN MOTORU
+//  3 Mod: Bilgisayara Karşı | Otomatik Eşleşme | Özel Oda
 // ============================================================
 
 const BOYUT = 8;
-
 const TAS = {
   wecode: { sembol: 'W', etiket: 'WECODE'   },
   carpi:  { sembol: '✕', etiket: 'Çarpı'    },
@@ -12,7 +11,6 @@ const TAS = {
   sola:   { sembol: '←', etiket: 'Sola dön' },
   saga:   { sembol: '→', etiket: 'Sağa dön' },
 };
-
 const YON_DELTA = {
   ileri: { ds: -1, dk: 0 },
   sola:  { ds: 0,  dk: -1 },
@@ -21,39 +19,73 @@ const YON_DELTA = {
 
 // ---- OYUN DURUMU ----
 let G = {
-  tahta: [],
-  piyon: {},
-  wecode: {},
-  el: {},
-  aktif: 1,
-  faz: 'baslangic',
-  baslangicSira: 1,
-  secili: null,
-  bitti: false,
+  tahta: [], piyon: {}, wecode: {}, el: {},
+  aktif: 1, faz: 'baslangic', baslangicSira: 1,
+  secili: null, bitti: false,
   ad: { 1: 'Oyuncu 1', 2: 'Oyuncu 2' },
 };
 
-// ---- BAĞLANTI DEĞİŞKENLERİ ----
+// ---- MOD DEĞİŞKENLERİ ----
+let mod = null;          // 'bilgisayar' | 'esleme' | 'ozel'
+let yzSeviye = 'orta';  // 'kolay' | 'orta' | 'zor'
+let benimNumaram = 1;
+let beniminSiram = true;
 let socket = null;
-let benimNumaram = null;  // Ben kaçıncı oyuncuyum (1 veya 2)
 let odaKodum = null;
-let beniminSiram = false; // Şu an benim sıram mı?
+let eslemeKuyrukta = false;
+
+// ============================================================
+//  MOD SEÇİMİ
+// ============================================================
+function modSec(secilen) {
+  const ad = document.getElementById('giris-isim').value.trim();
+  if (!ad) { toast('Önce adını gir!'); document.getElementById('giris-isim').focus(); return; }
+
+  mod = secilen;
+  if (mod === 'bilgisayar') {
+    ekranGoster('ekran-seviye');
+  } else if (mod === 'ozel') {
+    ekranGoster('ekran-ozel');
+  } else if (mod === 'esleme') {
+    eslemeBaslat();
+  }
+}
+
+function bilgisayarOyunuBaslat(seviye) {
+  yzSeviye = seviye;
+  const ad = document.getElementById('giris-isim').value.trim() || 'Oyuncu';
+  benimNumaram = 1;
+  beniminSiram = true;
+  G.ad[1] = ad;
+  G.ad[2] = seviyeAdi(seviye) + ' 🤖';
+  _oyunuKur();
+  ekranGoster('ekran-oyun');
+  toast(`${ad} vs Bilgisayar (${seviyeAdi(seviye)}) — Oyun başladı!`);
+}
+
+function seviyeAdi(s) {
+  return s === 'kolay' ? 'Kolay Bot' : s === 'orta' ? 'Orta Bot' : 'Zor Bot';
+}
 
 // ============================================================
 //  SOCKET.IO BAĞLANTISI
 // ============================================================
 function baglantiKur() {
-  // Render.com adresini buraya yaz (deploy sonrası güncellenir)
-  // Geliştirme sırasında aynı sunucuya bağlanır
-socket = io({
-  transports: ['websocket', 'polling'],
-  upgrade: true,
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  timeout: 20000,
-});
-  // Oda oluşturuldu
+  if (socket && socket.connected) return;
+
+  socket = io({
+    transports: ['polling', 'websocket'],
+    upgrade: true,
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    timeout: 30000,
+  });
+
+  socket.on('connect', () => {
+    console.log('Bağlantı kuruldu:', socket.id);
+  });
+
   socket.on('oda_olusturuldu', ({ odaKodu, oyuncuNumarasi }) => {
     odaKodum = odaKodu;
     benimNumaram = oyuncuNumarasi;
@@ -61,70 +93,60 @@ socket = io({
     ekranGoster('ekran-bekleme');
   });
 
-  // Odaya katılındı
   socket.on('odaya_katilindi', ({ odaKodu, oyuncuNumarasi, rakipAdi }) => {
     odaKodum = odaKodu;
     benimNumaram = oyuncuNumarasi;
-    toast(`${rakipAdi} odada seni bekliyor!`);
   });
 
-  // Oyun başladı (her iki oyuncu da hazır)
   socket.on('oyun_basladi', ({ oyuncu1Adi, oyuncu2Adi }) => {
     G.ad[1] = oyuncu1Adi;
     G.ad[2] = oyuncu2Adi;
-    oyunuBaslatIcSetting();
+    benimNumaram = benimNumaram;
+    _oyunuKur();
     ekranGoster('ekran-oyun');
-    toast(`Oyun başladı! Sen ${benimNumaram}. oyuncusun.`);
+    toast(benimNumaram === 1 ? 'Oyun başladı! Sıra sende.' : 'Oyun başladı! Rakip başlıyor...');
   });
 
-  // Rakibin hamlesi geldi
+  socket.on('esleme_bekleniyor', () => {
+    ekranGoster('ekran-esleme');
+    eslemeKuyrukta = true;
+  });
+
   socket.on('rakip_hamle', ({ hamleTipi, veri }) => {
     rakipHamleUygula(hamleTipi, veri);
   });
 
-  // Rakip kazandı bildirimi
   socket.on('oyun_bitti_bildir', ({ kazananNumara }) => {
     G.bitti = true;
     guncelle();
-    const kazananAd = G.ad[kazananNumara];
-    const benKazandimMi = kazananNumara === benimNumaram;
-    document.getElementById('kazanan-mesaj').textContent = benKazandimMi ? '🎉 Kazandın!' : `😢 ${kazananAd} Kazandı`;
-    document.getElementById('kazanan-alt').textContent = benKazandimMi
-      ? 'Tebrikler! Rakibin WECODE\'una ulaştın!'
-      : 'Rakibin WECODE\'una ulaştı. Bir daha dene!';
-    if (benKazandimMi) { sesSal('ses-kazanma'); konfetiBas(); }
-    setTimeout(() => ekranGoster('ekran-kazanma'), 900);
+    _kazanEkraniGoster(kazananNumara);
   });
 
-  // Yeniden oyna
   socket.on('oyun_sifirla', () => {
-    oyunuBaslatIcSetting();
+    _oyunuKur();
     ekranGoster('ekran-oyun');
     toast('Yeni oyun başladı!');
   });
 
-  // Rakip ayrıldı
-  socket.on('rakip_ayrildi', ({ mesaj }) => {
+  socket.on('rakip_ayrildi', () => {
     document.getElementById('baglanti-bandi').classList.remove('gizli');
-    toast('⚠️ ' + mesaj);
     G.bitti = true;
     guncelle();
   });
 
-  // Hata
   socket.on('hata', ({ mesaj }) => {
     toast('❌ ' + mesaj);
   });
 }
 
 // ============================================================
-//  ODA İŞLEMLERİ (Menü butonları)
+//  ODA İŞLEMLERİ
 // ============================================================
 function odaOlustur() {
   const ad = document.getElementById('giris-isim').value.trim();
   if (!ad) { toast('Önce adını gir!'); return; }
-  if (!socket) baglantiKur();
-  socket.emit('oda_olustur', { oyuncuAdi: ad });
+  baglantiKur();
+  setTimeout(() => socket.emit('oda_olustur', { oyuncuAdi: ad }), 300);
 }
 
 function odayaKatil() {
@@ -132,8 +154,8 @@ function odayaKatil() {
   const kod = document.getElementById('oda-kodu-input').value.trim().toUpperCase();
   if (!ad)  { toast('Önce adını gir!'); return; }
   if (!kod) { toast('Oda kodunu gir!'); return; }
-  if (!socket) baglantiKur();
-  socket.emit('odaya_katil', { odaKodu: kod, oyuncuAdi: ad });
+  baglantiKur();
+  setTimeout(() => socket.emit('odaya_katil', { odaKodu: kod, oyuncuAdi: ad }), 300);
 }
 
 function koduKopyala() {
@@ -141,10 +163,24 @@ function koduKopyala() {
   navigator.clipboard.writeText(kod).then(() => toast('Kod kopyalandı! ✅'));
 }
 
+function eslemeBaslat() {
+  const ad = document.getElementById('giris-isim').value.trim();
+  if (!ad) { toast('Önce adını gir!'); return; }
+  baglantiKur();
+  ekranGoster('ekran-esleme');
+  setTimeout(() => socket.emit('esleme_katil', { oyuncuAdi: ad }), 300);
+}
+
+function eslemeIptal() {
+  if (socket) socket.emit('esleme_ayril');
+  eslemeKuyrukta = false;
+  ekranGoster('ekran-menu');
+}
+
 // ============================================================
-//  OYUN BAŞLATMA (iç ayarlar)
+//  OYUN KURULUMU
 // ============================================================
-function oyunuBaslatIcSetting() {
+function _oyunuKur() {
   G.aktif = 1;
   G.faz = 'baslangic';
   G.baslangicSira = 1;
@@ -158,7 +194,7 @@ function oyunuBaslatIcSetting() {
     2: { carpi: 3, ileri: 3, sola: 2, saga: 2 },
   };
 
-  beniminSiram = (benimNumaram === 1); // Başta oyuncu 1'in sırası
+  beniminSiram = (benimNumaram === 1);
 
   document.getElementById('adi-oyuncu1').textContent = G.ad[1];
   document.getElementById('adi-oyuncu2').textContent = G.ad[2];
@@ -166,17 +202,21 @@ function oyunuBaslatIcSetting() {
 
   tahtaOlustur();
   guncelle();
+
+  // Bilgisayar modunda başlangıç mesajı
+  if (mod === 'bilgisayar') {
+    toast(`${G.ad[1]}: En alt satıra WECODE taşını koy ⭐`);
+  }
 }
 
 // ============================================================
-//  TAHTA OLUŞTUR
+//  TAHTA
 // ============================================================
 function tahtaOlustur() {
   const el = document.getElementById('tahta');
   el.innerHTML = '';
   el.style.gridTemplateColumns = `repeat(${BOYUT}, 1fr)`;
   el.style.gridTemplateRows    = `repeat(${BOYUT}, 1fr)`;
-
   for (let s = 0; s < BOYUT; s++) {
     for (let k = 0; k < BOYUT; k++) {
       const div = document.createElement('div');
@@ -196,54 +236,28 @@ function tahtaOlustur() {
 // ============================================================
 function kareClick(s, k) {
   if (G.bitti) return;
-
-  // Sıram değilse tıklamayı engelle
-  if (!beniminSiram) {
-    toast('Şu an rakibinin sırası, bekle!');
-    return;
-  }
-
-  if (G.faz === 'baslangic') {
-    baslangicClick(s, k);
-  } else {
-    if (G.secili) { tasKoyClick(s, k); }
-    else          { piyonClick(s, k);  }
-  }
+  if (!beniminSiram) { toast('Şu an rakibinin sırası!'); return; }
+  if (G.faz === 'baslangic') { baslangicClick(s, k); }
+  else if (G.secili)          { tasKoyClick(s, k); }
+  else                        { piyonClick(s, k); }
 }
 
 // ============================================================
-//  BAŞLANGIÇ: WECODE + piyon yerleştirme
+//  BAŞLANGIÇ
 // ============================================================
 function baslangicClick(s, k) {
   const o = G.baslangicSira;
-
-  // Sıradaki oyuncu benim değilse işlem yapma
-  if (o !== benimNumaram) {
-    toast('Şu an rakibinin başlangıç sırası!');
-    return;
-  }
+  if (o !== benimNumaram) { toast('Şu an rakibinin sırası!'); return; }
 
   const beklenenSatir = o === 1 ? BOYUT - 1 : 0;
   if (s !== beklenenSatir) {
     toast(`Sadece ${o === 1 ? 'EN ALT' : 'EN ÜST'} satıra koyabilirsin!`);
-    sesSal('ses-hata');
-    return;
+    sesSal('ses-hata'); return;
   }
-  if (G.tahta[s][k] !== null) {
-    toast('Bu kare dolu!');
-    sesSal('ses-hata');
-    return;
-  }
+  if (G.tahta[s][k] !== null) { toast('Bu kare dolu!'); sesSal('ses-hata'); return; }
 
-  // Yerel uygula
   _baslangicUygula(s, k, o);
-
-  // Sunucuya gönder
-  socket.emit('hamle', {
-    odaKodu: odaKodum,
-    hamleTipi: 'baslangic',
-    veri: { s, k, oyuncu: o },
-  });
+  _sunucuyaGonder('baslangic', { s, k, oyuncu: o });
 }
 
 function _baslangicUygula(s, k, o) {
@@ -255,17 +269,33 @@ function _baslangicUygula(s, k, o) {
   if (G.baslangicSira === 1) {
     G.baslangicSira = 2;
     G.aktif = 2;
-    beniminSiram = (benimNumaram === 2);
-    toast(benimNumaram === 2
-      ? 'Şimdi sen koy! En üst satıra WECODE taşını yerleştir ⭐'
-      : 'Rakip yerleştiriyor, bekle...');
+    const sonrakiOyuncu = 2;
+    beniminSiram = (benimNumaram === sonrakiOyuncu);
+
+    if (mod === 'bilgisayar') {
+      beniminSiram = false;
+      guncelle();
+      setTimeout(() => _yzBaslangic(), 800);
+    } else {
+      const mesaj = beniminSiram
+        ? 'Şimdi sen koy! En üst satıra WECODE taşını yerleştir ⭐'
+        : 'Rakip yerleştiriyor...';
+      guncelle();
+      toast(mesaj);
+    }
   } else {
     G.faz = 'oyun';
     G.aktif = 1;
     beniminSiram = (benimNumaram === 1);
-    toast(beniminSiram ? 'Oyun başladı! Hamle sırası sende.' : 'Oyun başladı! Rakip hamle yapıyor...');
+    guncelle();
+    if (mod === 'bilgisayar') {
+      beniminSiram = true;
+      toast('Oyun başladı! Sıra sende.');
+    } else {
+      toast(beniminSiram ? '✅ Oyun başladı! Sıra sende.' : '⏳ Oyun başladı! Rakip hamle yapıyor...');
+    }
+    guncelle();
   }
-  guncelle();
 }
 
 // ============================================================
@@ -283,44 +313,33 @@ function piyonClick(s, k) {
 
   if (aS === 1 && aK === 1) {
     if (!caprazGecerliMi(p.s, p.k)) {
-      toast('Çapraz hareket koşulları sağlanmıyor!');
-      sesSal('ses-hata');
-      return;
+      toast('Çapraz hareket koşulları sağlanmıyor!'); sesSal('ses-hata'); return;
     }
   }
 
   const hedef = G.tahta[s][k];
-  if (hedef && hedef.tip === 'carpi') {
-    toast('Çarpı taşı var, oradan geçemezsin! ✕');
-    sesSal('ses-hata');
-    return;
-  }
-
   const r = o === 1 ? 2 : 1;
 
+  if (hedef && hedef.tip === 'carpi') { toast('Çarpı taşı! Oradan geçemezsin ✕'); sesSal('ses-hata'); return; }
+
   if (hedef && hedef.tip === 'piyon' && hedef.oyuncu === r) {
-    karsilasmaYonet(p.s, p.k, s, k);
-    return;
+    karsilasmaYonet(p.s, p.k, s, k); return;
   }
 
   if (hedef && hedef.tip === 'wecode' && hedef.oyuncu === r) {
     _piyonTasiUygula(p.s, p.k, s, k, o);
-    socket.emit('hamle', { odaKodu: odaKodum, hamleTipi: 'piyon', veri: { eskiS: p.s, eskiK: p.k, yeniS: s, yeniK: k, oyuncu: o } });
-    _kazanBildir(o);
-    return;
+    _sunucuyaGonder('piyon', { eskiS: p.s, eskiK: p.k, yeniS: s, yeniK: k, oyuncu: o });
+    _kazanBildir(o); return;
   }
 
-  if (hedef !== null && hedef.tip !== 'wecode') {
-    toast('Bu kare dolu!');
-    sesSal('ses-hata');
-    return;
-  }
+  if (hedef !== null && hedef.tip !== 'wecode') { toast('Bu kare dolu!'); sesSal('ses-hata'); return; }
 
   _piyonTasiUygula(p.s, p.k, s, k, o);
-  socket.emit('hamle', { odaKodu: odaKodum, hamleTipi: 'piyon', veri: { eskiS: p.s, eskiK: p.k, yeniS: s, yeniK: k, oyuncu: o } });
+  _sunucuyaGonder('piyon', { eskiS: p.s, eskiK: p.k, yeniS: s, yeniK: k, oyuncu: o });
 }
 
 function _piyonTasiUygula(eskiS, eskiK, yeniS, yeniK, o) {
+  const r = o === 1 ? 2 : 1;
   const wcO = G.wecode[o];
   if (wcO && wcO.s === eskiS && wcO.k === eskiK) {
     G.tahta[eskiS][eskiK] = { tip: 'wecode', oyuncu: o };
@@ -331,12 +350,8 @@ function _piyonTasiUygula(eskiS, eskiK, yeniS, yeniK, o) {
   G.piyon[o] = { s: yeniS, k: yeniK };
   sesSal('ses-piyon-hareket');
 
-  const r = o === 1 ? 2 : 1;
   const wcR = G.wecode[r];
-  if (wcR && wcR.s === yeniS && wcR.k === yeniK) {
-    _kazanBildir(o);
-    return;
-  }
+  if (wcR && wcR.s === yeniS && wcR.k === yeniK) { _kazanBildir(o); return; }
   _siraGecir();
 }
 
@@ -344,8 +359,7 @@ function _piyonTasiUygula(eskiS, eskiK, yeniS, yeniK, o) {
 //  KARŞILAŞMA
 // ============================================================
 function karsilasmaYonet(pS, pK, rS, rK) {
-  const o = G.aktif;
-  const r = o === 1 ? 2 : 1;
+  const o = G.aktif, r = o === 1 ? 2 : 1;
   const ds = rS - pS, dk = rK - pK;
   const arkaS = rS + ds, arkaK = rK + dk;
   const arkaGecerli = arkaS >= 0 && arkaS < BOYUT && arkaK >= 0 && arkaK < BOYUT;
@@ -356,18 +370,13 @@ function karsilasmaYonet(pS, pK, rS, rK) {
     sesSal('ses-karsilasma');
     toast('Rakibin üstünden atladın! 🦘');
     _piyonTasiUygula(pS, pK, arkaS, arkaK, o);
-    socket.emit('hamle', { odaKodu: odaKodum, hamleTipi: 'piyon', veri: { eskiS: pS, eskiK: pK, yeniS: arkaS, yeniK: arkaK, oyuncu: o } });
+    _sunucuyaGonder('piyon', { eskiS: pS, eskiK: pK, yeniS: arkaS, yeniK: arkaK, oyuncu: o });
     return;
   }
-
   if (caprazGecerliMi(pS, pK)) {
-    toast('Karşılaşma! Çapraz gidebilirsin — köşe karelerden birine tıkla!');
-    guncelle();
-    return;
+    toast('Karşılaşma! Çapraz gidebilirsin — köşe kareye tıkla!'); guncelle(); return;
   }
-
-  toast('Karşılaşma! Yana git veya geri çekil.');
-  guncelle();
+  toast('Karşılaşma! Yana git veya geri çekil.'); guncelle();
 }
 
 function caprazGecerliMi(s, k) {
@@ -403,10 +412,9 @@ function tasKoyClick(s, k) {
     G.tahta[s][k] = { tip: 'carpi', oyuncu: o };
     G.el[o].carpi--;
     sesSal('ses-tas-koy');
-    socket.emit('hamle', { odaKodu: odaKodum, hamleTipi: 'carpi', veri: { s, k, oyuncu: o } });
+    _sunucuyaGonder('carpi', { s, k, oyuncu: o });
     G.secili = null;
-    _siraGecir();
-    return;
+    _siraGecir(); return;
   }
 
   if (tip === 'ileri' || tip === 'sola' || tip === 'saga') {
@@ -414,7 +422,7 @@ function tasKoyClick(s, k) {
     if (!rp) { toast('Rakibin piyonu yok!'); return; }
     const ds = Math.abs(s-rp.s), dk = Math.abs(k-rp.k);
     if (!((ds===1&&dk===0)||(ds===0&&dk===1))) {
-      toast('Yön taşını sadece rakip piyonun bitişiğine (ön/arka/sağ/sol) koyabilirsin!');
+      toast('Yön taşını sadece rakip piyonun bitişiğine koy! (ön/arka/sağ/sol)');
       sesSal('ses-hata'); return;
     }
     if (G.tahta[s][k] !== null) { toast('Bu kare dolu!'); sesSal('ses-hata'); return; }
@@ -422,37 +430,33 @@ function tasKoyClick(s, k) {
     const delta = YON_DELTA[tip];
     const yeniS = rp.s + delta.ds, yeniK = rp.k + delta.dk;
     if (yeniS<0||yeniS>=BOYUT||yeniK<0||yeniK>=BOYUT) {
-      toast('Rakip piyon tahtadan çıkıyor! Geçersiz hamle.'); sesSal('ses-hata'); return;
+      toast('Rakip tahtadan çıkıyor! Geçersiz.'); sesSal('ses-hata'); return;
     }
     const hedefH = G.tahta[yeniS][yeniK];
     if (hedefH !== null && hedefH.tip !== 'wecode') {
-      toast('Rakip piyonun gideceği kare dolu! Geçersiz hamle.'); sesSal('ses-hata'); return;
+      toast('Gideceği kare dolu! Geçersiz.'); sesSal('ses-hata'); return;
     }
 
-    // Uygula
     G.tahta[s][k] = { tip, oyuncu: o };
     G.el[o][tip]--;
     const wcR = G.wecode[r];
     if (wcR && wcR.s===rp.s && wcR.k===rp.k) {
-      G.tahta[rp.s][rp.k] = { tip: 'wecode', oyuncu: r };
+      G.tahta[rp.s][rp.k] = { tip:'wecode', oyuncu:r };
     } else {
       G.tahta[rp.s][rp.k] = null;
     }
-    G.tahta[yeniS][yeniK] = { tip: 'piyon', oyuncu: r };
-    G.piyon[r] = { s: yeniS, k: yeniK };
+    G.tahta[yeniS][yeniK] = { tip:'piyon', oyuncu:r };
+    G.piyon[r] = { s:yeniS, k:yeniK };
     sesSal('ses-karsilasma');
 
-    socket.emit('hamle', {
-      odaKodu: odaKodum, hamleTipi: 'yon',
-      veri: { tasS: s, tasK: k, tip, oyuncu: o, rakipEskiS: rp.s, rakipEskiK: rp.k, rakipYeniS: yeniS, rakipYeniK: yeniK, rakip: r }
+    _sunucuyaGonder('yon', {
+      tasS:s, tasK:k, tip, oyuncu:o,
+      rakipEskiS:rp.s, rakipEskiK:rp.k,
+      rakipYeniS:yeniS, rakipYeniK:yeniK, rakip:r
     });
 
-    // Rakip bizim wecode'umuza geldi mi?
     const wcO = G.wecode[o];
-    if (wcO && wcO.s===yeniS && wcO.k===yeniK) {
-      _kazanBildir(r); return;
-    }
-
+    if (wcO && wcO.s===yeniS && wcO.k===yeniK) { _kazanBildir(r); return; }
     G.secili = null;
     _siraGecir();
   }
@@ -464,7 +468,7 @@ function karpiGuvenlimi(s, k) {
     const wc = G.wecode[o];
     if (wc && !etrafBosMu(wc.s, wc.k)) {
       G.tahta[s][k] = null;
-      toast('WECODE taşının etrafı tamamen kapanamaz!'); sesSal('ses-hata'); return false;
+      toast('WECODE taşının etrafı kapanamaz!'); sesSal('ses-hata'); return false;
     }
     const p = G.piyon[o];
     if (p) {
@@ -489,7 +493,7 @@ function etrafBosMu(s, k) {
   return false;
 }
 
-function bfsVarMi(bS, bK, hS, hK) {
+function bfsVarMi(bS,bK,hS,hK) {
   const z=Array.from({length:BOYUT},()=>Array(BOYUT).fill(false));
   const q=[{s:bS,k:bK}]; z[bS][bK]=true;
   while(q.length){
@@ -507,23 +511,365 @@ function bfsVarMi(bS, bK, hS, hK) {
 }
 
 // ============================================================
-//  RAKİP HAMLESİNİ UYGULA (sunucudan gelen)
+//  SIRA GEÇİŞİ
+// ============================================================
+function _siraGecir() {
+  G.aktif = G.aktif === 1 ? 2 : 1;
+  G.secili = null;
+  beniminSiram = (G.aktif === benimNumaram);
+  guncelle();
+
+  if (mod === 'bilgisayar' && G.aktif === 2 && !G.bitti) {
+    beniminSiram = false;
+    guncelle();
+    setTimeout(() => _yzHamleYap(), 700 + Math.random() * 600);
+  } else if (mod !== 'bilgisayar') {
+    toast(beniminSiram ? '✅ Sıra sende!' : '⏳ Rakibinin sırası...');
+  }
+}
+
+// ============================================================
+//  YZ (BİLGİSAYAR) MOTORU
+// ============================================================
+
+function _yzBaslangic() {
+  // YZ oyuncu 2 — en üst satıra rastgele koy
+  const bos = [];
+  for (let k = 0; k < BOYUT; k++) {
+    if (G.tahta[0][k] === null) bos.push(k);
+  }
+  const k = bos[Math.floor(Math.random() * bos.length)];
+  _baslangicUygula(0, k, 2);
+}
+
+function _yzHamleYap() {
+  if (G.bitti || G.aktif !== 2) return;
+
+  let hamle = null;
+
+  if (yzSeviye === 'kolay') {
+    hamle = _yzKolayHamle();
+  } else if (yzSeviye === 'orta') {
+    hamle = _yzOrtaHamle();
+  } else {
+    hamle = _yzZorHamle();
+  }
+
+  if (!hamle) hamle = _yzKolayHamle();
+  if (!hamle) return;
+
+  _yzHamleUygula(hamle);
+  beniminSiram = true;
+}
+
+function _yzKolayHamle() {
+  // Rastgele geçerli piyon hamlesi veya taş koyma
+  const hamleler = _tumGecerliHamleler(2);
+  if (!hamleler.length) return null;
+  return hamleler[Math.floor(Math.random() * hamleler.length)];
+}
+
+function _yzOrtaHamle() {
+  // Önce kazanma fırsatı ara, sonra tehlikeyi engelle, yoksa iyi hamle yap
+  const hamleler = _tumGecerliHamleler(2);
+  if (!hamleler.length) return null;
+
+  // Kazanma hamlesi var mı?
+  for (const h of hamleler) {
+    if (_hamleKazandirirMi(h, 2)) return h;
+  }
+
+  // Rakibi (oyuncu 1) engelle
+  const tehlike = _enTehlikeliHamle(1);
+  if (tehlike) return tehlike;
+
+  // En iyi pozisyona git
+  let enIyi = null, enIyiSkor = -999;
+  for (const h of hamleler) {
+    const skor = _hamleSkorla(h, 2);
+    if (skor > enIyiSkor) { enIyiSkor = skor; enIyi = h; }
+  }
+  return enIyi;
+}
+
+function _yzZorHamle() {
+  // Minimax benzeri 2 adım ileriye bak
+  const hamleler = _tumGecerliHamleler(2);
+  if (!hamleler.length) return null;
+
+  let enIyi = null, enIyiSkor = -999;
+  for (const h of hamleler) {
+    const skor = _minimax(h, 2, 2);
+    if (skor > enIyiSkor) { enIyiSkor = skor; enIyi = h; }
+  }
+  return enIyi;
+}
+
+function _minimax(hamle, oyuncu, derinlik) {
+  // Hamleyi geçici uygula
+  const yedek = JSON.parse(JSON.stringify({ tahta: G.tahta, piyon: G.piyon, el: G.el }));
+  _hamleGeciciUygula(hamle, oyuncu);
+
+  let skor = _pozisyonSkorla(2);
+
+  if (derinlik > 1 && !G.bitti) {
+    const rakip = oyuncu === 1 ? 2 : 1;
+    const rakipHamleleri = _tumGecerliHamleler(rakip);
+    if (rakipHamleleri.length > 0) {
+      let enKotuRakip = 999;
+      for (const rh of rakipHamleleri.slice(0, 5)) {
+        const rs = _minimax(rh, rakip, derinlik - 1);
+        if (rs < enKotuRakip) enKotuRakip = rs;
+      }
+      skor = skor - enKotuRakip * 0.5;
+    }
+  }
+
+  // Geri al
+  G.tahta = yedek.tahta;
+  G.piyon = yedek.piyon;
+  G.el = yedek.el;
+
+  return skor;
+}
+
+function _tumGecerliHamleler(o) {
+  const hamleler = [];
+  const p = G.piyon[o];
+  if (!p) return hamleler;
+
+  // Piyon hareketleri
+  for (const [ds,dk] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+    const ns = p.s+ds, nk = p.k+dk;
+    if (ns<0||ns>=BOYUT||nk<0||nk>=BOYUT) continue;
+    if (Math.abs(ds)===1&&Math.abs(dk)===1) {
+      const oncekiAktif = G.aktif;
+      G.aktif = o;
+      const gecerli = caprazGecerliMi(p.s, p.k);
+      G.aktif = oncekiAktif;
+      if (!gecerli) continue;
+    }
+    const h = G.tahta[ns][nk];
+    if (h && h.tip === 'carpi') continue;
+    if (h && h.tip === 'piyon' && h.oyuncu === o) continue;
+    hamleler.push({ tip: 'piyon', s: ns, k: nk });
+  }
+
+  // Taş koyma hareketleri
+  const r = o === 1 ? 2 : 1;
+  const rp = G.piyon[r];
+
+  // Çarpı taşı
+  if ((G.el[o].carpi ?? 0) > 0) {
+    for (let s=0; s<BOYUT; s++) for (let k=0; k<BOYUT; k++) {
+      if (G.tahta[s][k] === null) {
+        G.tahta[s][k] = { tip:'carpi', oyuncu:0 };
+        let guvenli = true;
+        for (const oo of [1,2]) {
+          const wc = G.wecode[oo];
+          if (wc && !etrafBosMu(wc.s, wc.k)) { guvenli = false; break; }
+          const pp = G.piyon[oo];
+          if (pp) {
+            const rr = oo===1?2:1;
+            const wR = G.wecode[rr];
+            if (wR && !bfsVarMi(pp.s,pp.k,wR.s,wR.k)) { guvenli = false; break; }
+          }
+        }
+        G.tahta[s][k] = null;
+        if (guvenli) hamleler.push({ tip:'tas', tasTip:'carpi', s, k });
+      }
+    }
+  }
+
+  // Yön taşları
+  for (const tasTip of ['ileri','sola','saga']) {
+    if ((G.el[o][tasTip] ?? 0) <= 0) continue;
+    if (!rp) continue;
+    for (const [ds,dk] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      const ts = rp.s+ds, tk = rp.k+dk;
+      if (ts<0||ts>=BOYUT||tk<0||tk>=BOYUT) continue;
+      if (G.tahta[ts][tk] !== null) continue;
+      const delta = YON_DELTA[tasTip];
+      const yeniS = rp.s+delta.ds, yeniK = rp.k+delta.dk;
+      if (yeniS<0||yeniS>=BOYUT||yeniK<0||yeniK>=BOYUT) continue;
+      const hedefH = G.tahta[yeniS][yeniK];
+      if (hedefH !== null && hedefH.tip !== 'wecode') continue;
+      hamleler.push({ tip:'tas', tasTip, tasS:ts, tasK:tk, yeniS, yeniK });
+    }
+  }
+
+  return hamleler;
+}
+
+function _hamleKazandirirMi(hamle, o) {
+  const r = o === 1 ? 2 : 1;
+  const wcR = G.wecode[r];
+  if (!wcR) return false;
+  if (hamle.tip === 'piyon') {
+    return hamle.s === wcR.s && hamle.k === wcR.k;
+  }
+  if (hamle.tip === 'tas' && (hamle.tasTip==='ileri'||hamle.tasTip==='sola'||hamle.tasTip==='saga')) {
+    const wcO = G.wecode[o];
+    return wcO && hamle.yeniS===wcO.s && hamle.yeniK===wcO.k;
+  }
+  return false;
+}
+
+function _enTehlikeliHamle(rakip) {
+  // Rakibin kazanma hamlesini engelle
+  const r = rakip === 1 ? 2 : 1;
+  const wcR = G.wecode[r];
+  if (!wcR) return null;
+  const rp = G.piyon[rakip];
+  if (!rp) return null;
+
+  // Rakip 1 adımda kazanabilir mi?
+  for (const [ds,dk] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+    const ns=rp.s+ds, nk=rp.k+dk;
+    if (ns===wcR.s && nk===wcR.k) {
+      // Oraya çarpı koyabilir miyiz?
+      const hamleler = _tumGecerliHamleler(2);
+      for (const h of hamleler) {
+        if (h.tip==='tas' && h.tasTip==='carpi' && h.s===ns && h.k===nk) return h;
+      }
+    }
+  }
+  return null;
+}
+
+function _hamleSkorla(hamle, o) {
+  const r = o === 1 ? 2 : 1;
+  const wcR = G.wecode[r];
+  const wcO = G.wecode[o];
+  const p = G.piyon[o];
+  const rp = G.piyon[r];
+  if (!wcR || !p) return 0;
+
+  let skor = 0;
+
+  if (hamle.tip === 'piyon') {
+    // Rakibin wecode'una yaklaşıyor mu?
+    const eskiMesafe = Math.abs(p.s-wcR.s) + Math.abs(p.k-wcR.k);
+    const yeniMesafe = Math.abs(hamle.s-wcR.s) + Math.abs(hamle.k-wcR.k);
+    skor += (eskiMesafe - yeniMesafe) * 10;
+  }
+
+  if (hamle.tip === 'tas' && hamle.tasTip === 'carpi' && rp) {
+    // Rakibi yoldan uzaklaştırıyor mu?
+    const wcRakipWecode = G.wecode[r];
+    if (wcRakipWecode) {
+      const rMesafe = Math.abs(rp.s-wcRakipWecode.s) + Math.abs(rp.k-wcRakipWecode.k);
+      if (hamle.s >= Math.min(rp.s, wcRakipWecode.s) && hamle.s <= Math.max(rp.s, wcRakipWecode.s)) skor += 5;
+    }
+  }
+
+  return skor + Math.random() * 2;
+}
+
+function _pozisyonSkorla(o) {
+  const r = o === 1 ? 2 : 1;
+  const wcR = G.wecode[r];
+  const p = G.piyon[o];
+  const rp = G.piyon[r];
+  if (!wcR || !p) return 0;
+
+  const bizimMesafe = Math.abs(p.s-wcR.s) + Math.abs(p.k-wcR.k);
+  const wcO = G.wecode[o];
+  const rakipMesafe = (rp && wcO) ? Math.abs(rp.s-wcO.s) + Math.abs(rp.k-wcO.k) : 8;
+
+  return (rakipMesafe - bizimMesafe) * 5;
+}
+
+function _hamleGeciciUygula(hamle, o) {
+  const r = o === 1 ? 2 : 1;
+  if (hamle.tip === 'piyon') {
+    const p = G.piyon[o];
+    if (!p) return;
+    const wcO = G.wecode[o];
+    if (wcO && wcO.s===p.s && wcO.k===p.k) {
+      G.tahta[p.s][p.k] = { tip:'wecode', oyuncu:o };
+    } else {
+      G.tahta[p.s][p.k] = null;
+    }
+    G.tahta[hamle.s][hamle.k] = { tip:'piyon', oyuncu:o };
+    G.piyon[o] = { s:hamle.s, k:hamle.k };
+  } else if (hamle.tip === 'tas') {
+    if (hamle.tasTip === 'carpi') {
+      G.tahta[hamle.s][hamle.k] = { tip:'carpi', oyuncu:o };
+      G.el[o].carpi--;
+    } else {
+      G.tahta[hamle.tasS][hamle.tasK] = { tip:hamle.tasTip, oyuncu:o };
+      G.el[o][hamle.tasTip]--;
+      const rp = G.piyon[r];
+      if (rp) {
+        const wcR = G.wecode[r];
+        if (wcR && wcR.s===rp.s && wcR.k===rp.k) {
+          G.tahta[rp.s][rp.k] = { tip:'wecode', oyuncu:r };
+        } else {
+          G.tahta[rp.s][rp.k] = null;
+        }
+        G.tahta[hamle.yeniS][hamle.yeniK] = { tip:'piyon', oyuncu:r };
+        G.piyon[r] = { s:hamle.yeniS, k:hamle.yeniK };
+      }
+    }
+  }
+}
+
+function _yzHamleUygula(hamle) {
+  const o = 2, r = 1;
+  if (hamle.tip === 'piyon') {
+    const p = G.piyon[o];
+    if (!p) return;
+    const wcR = G.wecode[r];
+    if (wcR && wcR.s===hamle.s && wcR.k===hamle.k) {
+      _piyonTasiUygula(p.s, p.k, hamle.s, hamle.k, o);
+      _kazanBildir(o); return;
+    }
+    _piyonTasiUygula(p.s, p.k, hamle.s, hamle.k, o);
+  } else if (hamle.tip === 'tas') {
+    if (hamle.tasTip === 'carpi') {
+      G.tahta[hamle.s][hamle.k] = { tip:'carpi', oyuncu:o };
+      G.el[o].carpi--;
+      sesSal('ses-tas-koy');
+      _siraGecir();
+    } else {
+      const rp = G.piyon[r];
+      if (!rp) { _siraGecir(); return; }
+      G.tahta[hamle.tasS][hamle.tasK] = { tip:hamle.tasTip, oyuncu:o };
+      G.el[o][hamle.tasTip]--;
+      const wcR = G.wecode[r];
+      if (wcR && wcR.s===rp.s && wcR.k===rp.k) {
+        G.tahta[rp.s][rp.k] = { tip:'wecode', oyuncu:r };
+      } else {
+        G.tahta[rp.s][rp.k] = null;
+      }
+      G.tahta[hamle.yeniS][hamle.yeniK] = { tip:'piyon', oyuncu:r };
+      G.piyon[r] = { s:hamle.yeniS, k:hamle.yeniK };
+      sesSal('ses-karsilasma');
+      const wcO = G.wecode[o];
+      if (wcO && wcO.s===hamle.yeniS && wcO.k===hamle.yeniK) {
+        _kazanBildir(r); return;
+      }
+      _siraGecir();
+    }
+  }
+}
+
+// ============================================================
+//  RAKİP HAMLESİ (Online)
 // ============================================================
 function rakipHamleUygula(hamleTipi, veri) {
   if (hamleTipi === 'baslangic') {
     _baslangicUygula(veri.s, veri.k, veri.oyuncu);
-  }
-  else if (hamleTipi === 'piyon') {
+  } else if (hamleTipi === 'piyon') {
     _piyonTasiUygula(veri.eskiS, veri.eskiK, veri.yeniS, veri.yeniK, veri.oyuncu);
-  }
-  else if (hamleTipi === 'carpi') {
-    G.tahta[veri.s][veri.k] = { tip: 'carpi', oyuncu: veri.oyuncu };
+  } else if (hamleTipi === 'carpi') {
+    G.tahta[veri.s][veri.k] = { tip:'carpi', oyuncu:veri.oyuncu };
     G.el[veri.oyuncu].carpi--;
     sesSal('ses-tas-koy');
     _siraGecir();
-  }
-  else if (hamleTipi === 'yon') {
-    G.tahta[veri.tasS][veri.tasK] = { tip: veri.tip, oyuncu: veri.oyuncu };
+  } else if (hamleTipi === 'yon') {
+    G.tahta[veri.tasS][veri.tasK] = { tip:veri.tip, oyuncu:veri.oyuncu };
     G.el[veri.oyuncu][veri.tip]--;
     const wcR = G.wecode[veri.rakip];
     if (wcR && wcR.s===veri.rakipEskiS && wcR.k===veri.rakipEskiK) {
@@ -539,14 +885,12 @@ function rakipHamleUygula(hamleTipi, veri) {
 }
 
 // ============================================================
-//  SIRA GEÇİŞİ
+//  SUNUCUYA GÖNDER (Online modlarda)
 // ============================================================
-function _siraGecir() {
-  G.aktif = G.aktif === 1 ? 2 : 1;
-  G.secili = null;
-  beniminSiram = (G.aktif === benimNumaram);
-  guncelle();
-  toast(beniminSiram ? '✅ Sıra sende! Hamle yap.' : '⏳ Rakibinin sırası, bekle...');
+function _sunucuyaGonder(hamleTipi, veri) {
+  if (mod === 'bilgisayar') return;
+  if (!socket || !odaKodum) return;
+  socket.emit('hamle', { odaKodu: odaKodum, hamleTipi, veri });
 }
 
 // ============================================================
@@ -556,16 +900,31 @@ function _kazanBildir(kazananOyuncu) {
   G.bitti = true;
   guncelle();
 
-  const benKazandimMi = (kazananOyuncu === benimNumaram);
-  document.getElementById('kazanan-mesaj').textContent = benKazandimMi ? '🎉 Kazandın!' : `😢 ${G.ad[kazananOyuncu]} Kazandı`;
-  document.getElementById('kazanan-alt').textContent = benKazandimMi
-    ? 'Tebrikler! Rakibin WECODE\'una ulaştın!'
-    : 'Rakibin WECODE\'una ulaştı. Bir daha dene!';
+  if (mod !== 'bilgisayar' && socket && odaKodum) {
+    socket.emit('oyun_bitti', { odaKodu: odaKodum, kazananNumara: kazananOyuncu });
+  }
 
-  if (benKazandimMi) { sesSal('ses-kazanma'); konfetiBas(); }
+  _kazanEkraniGoster(kazananOyuncu);
+}
 
-  // Rakibe de bildir
-  socket.emit('oyun_bitti', { odaKodu: odaKodum, kazananNumara: kazananOyuncu });
+function _kazanEkraniGoster(kazananOyuncu) {
+  const benKazandimMi = mod === 'bilgisayar'
+    ? kazananOyuncu === 1
+    : kazananOyuncu === benimNumaram;
+
+  const ad = G.ad[kazananOyuncu];
+
+  if (benKazandimMi) {
+    document.getElementById('kupa-emoji').textContent = '🏆';
+    document.getElementById('kazanan-mesaj').textContent = `🎉 ${ad}`;
+    document.getElementById('kazanan-alt').textContent = 'Rakibin WECODE\'una ulaştı ve kazandı!';
+    sesSal('ses-kazanma');
+    konfetiBas();
+  } else {
+    document.getElementById('kupa-emoji').textContent = '😢';
+    document.getElementById('kazanan-mesaj').textContent = `${ad} Kazandı`;
+    document.getElementById('kazanan-alt').textContent = 'Rakibine kaybettin. Bir daha dene!';
+  }
 
   setTimeout(() => ekranGoster('ekran-kazanma'), 900);
 }
@@ -587,7 +946,7 @@ function konfetiBas() {
 }
 
 // ============================================================
-//  GÖRSEL GÜNCELLEME
+//  GÖRSEL
 // ============================================================
 function guncelle() {
   tahtaCiz();
@@ -605,10 +964,8 @@ function tahtaCiz() {
       kEl.className = 'kare';
       if (s===BOYUT-1) kEl.classList.add('satir-oyuncu1');
       if (s===0)       kEl.classList.add('satir-oyuncu2');
-
       const h = G.tahta[s][k];
       if (!h) continue;
-
       const div = document.createElement('div');
       if (h.tip === 'piyon') {
         div.className = `kare-tas oyuncu${h.oyuncu} tip-piyon`;
@@ -649,7 +1006,13 @@ function vurgula() {
   for (const [ds,dk] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
     const ns=p.s+ds, nk=p.k+dk;
     if (ns<0||ns>=BOYUT||nk<0||nk>=BOYUT) continue;
-    if (Math.abs(ds)===1&&Math.abs(dk)===1 && !caprazGecerliMi(p.s,p.k)) continue;
+    if (Math.abs(ds)===1&&Math.abs(dk)===1) {
+      const oncekiAktif = G.aktif;
+      G.aktif = benimNumaram;
+      const gecerli = caprazGecerliMi(p.s, p.k);
+      G.aktif = oncekiAktif;
+      if (!gecerli) continue;
+    }
     const h = G.tahta[ns][nk];
     if (h && h.tip==='carpi') continue;
     const el=document.querySelector(`[data-satir="${ns}"][data-sutun="${nk}"]`);
@@ -658,12 +1021,18 @@ function vurgula() {
 }
 
 function panelGuncelle() {
-  const a=G.aktif, em={1:'🔴',2:'🟣'};
-  // Sol panel: benim taşlarım, sağ: rakip
-  const benim = benimNumaram || 1;
+  const a = G.aktif;
+  const em = { 1:'🔴', 2:'🟣' };
+
+  const benim = benimNumaram;
   const rakip = benim===1?2:1;
-  document.getElementById('sol-panel-baslik').textContent = `${em[benim]} Taşların`;
-  document.getElementById('sag-panel-baslik').textContent = `${em[rakip]} Rakip`;
+
+  let solBaslik = `${em[benim]} Taşların`;
+  let sagBaslik = `${em[rakip]} ${mod==='bilgisayar'?'Bot':'Rakip'}`;
+
+  document.getElementById('sol-panel-baslik').textContent = solBaslik;
+  document.getElementById('sag-panel-baslik').textContent = sagBaslik;
+
   _dolduPanel('tas-listesi-oyuncu1', benim, true);
   _dolduPanel('tas-listesi-oyuncu2', rakip, false);
 
@@ -706,10 +1075,18 @@ function tasSeç(tip) {
 }
 
 function mesajGuncelle() {
-  const a = G.aktif, em = a===1?'🔴':'🟣';
-  document.getElementById('sira-gostergesi').textContent = beniminSiram
-    ? '✅ Sıra Sende!'
-    : `⏳ ${G.ad[a]} hamle yapıyor...`;
+  const a = G.aktif;
+  const em = a===1?'🔴':'🟣';
+
+  let siraMetni = '';
+  if (G.faz === 'baslangic') {
+    siraMetni = `${em} ${G.ad[a]}'in sırası`;
+  } else if (beniminSiram) {
+    siraMetni = '✅ Sıra Sende!';
+  } else {
+    siraMetni = `⏳ ${G.ad[a]} düşünüyor...`;
+  }
+  document.getElementById('sira-gostergesi').textContent = siraMetni;
 
   let alt = '';
   if (G.faz==='baslangic') {
@@ -727,7 +1104,7 @@ function mesajGuncelle() {
 }
 
 // ============================================================
-//  SES / TOAST / EKRAN / YARDIMCI
+//  SES / TOAST / EKRAN
 // ============================================================
 function sesSal(id) {
   const el=document.getElementById(id);
@@ -740,7 +1117,7 @@ function toast(mesaj) {
   let t=document.getElementById('toast-mesaj');
   if(!t){ t=document.createElement('div'); t.id='toast-mesaj'; t.className='toast'; document.body.appendChild(t); }
   t.textContent=mesaj; t.classList.add('goster');
-  clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('goster'),3200);
+  clearTimeout(_tt); _tt=setTimeout(()=>t.classList.remove('goster'),3000);
 }
 
 function ekranGoster(id) {
@@ -749,12 +1126,10 @@ function ekranGoster(id) {
   if(el) el.classList.add('aktif');
 }
 
-function kurallariGoster() { ekranGoster('ekran-kurallar'); }
-function geriDon()          { ekranGoster('ekran-menu');    }
-function anaMenuye()        { ekranGoster('ekran-menu');    }
-
 function oyunuSifirla() {
-  if (socket && odaKodum) {
+  if (mod === 'bilgisayar') {
+    ekranGoster('ekran-seviye');
+  } else if (socket && odaKodum) {
     socket.emit('yeniden_oyna', { odaKodu: odaKodum });
   } else {
     ekranGoster('ekran-menu');
@@ -762,15 +1137,14 @@ function oyunuSifirla() {
 }
 
 function yenidenOyna() {
-  if (socket && odaKodum) {
-    socket.emit('yeniden_oyna', { odaKodu: odaKodum });
-  } else {
-    ekranGoster('ekran-menu');
-  }
+  oyunuSifirla();
 }
 
-// Sayfa açılınca bağlantıyı kur
+function anaMenuye() {
+  mod = null; odaKodum = null; benimNumaram = 1;
+  ekranGoster('ekran-menu');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  baglantiKur();
   ekranGoster('ekran-menu');
 });
