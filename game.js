@@ -45,8 +45,14 @@ let beniminSiram = false; // Şu an benim sıram mı?
 function baglantiKur() {
   // Render.com adresini buraya yaz (deploy sonrası güncellenir)
   // Geliştirme sırasında aynı sunucuya bağlanır
-  socket = io();
-
+socket = io({
+  transports: ['websocket', 'polling'],
+  upgrade: true,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  timeout: 20000,
+});
   // Oda oluşturuldu
   socket.on('oda_olusturuldu', ({ odaKodu, oyuncuNumarasi }) => {
     odaKodum = odaKodu;
