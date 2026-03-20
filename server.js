@@ -19,7 +19,7 @@ app.use(express.static(__dirname));
 
 // Ana sayfa
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // ---- ODA YÖNETİMİ ----
