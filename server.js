@@ -1,8 +1,3 @@
-// ============================================================
-//  WECODE MULTIPLAYER SUNUCU
-//  Node.js + Socket.io
-// ============================================================
-
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -11,23 +6,20 @@ const path    = require('path');
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: '*' },
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-// Statik dosyaları sun (HTML, CSS, JS, sesler)
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
-// Ana sayfa
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// ---- ODA YÖNETİMİ ----
-// odalar[odaKodu] = { oyuncular: [socket1, socket2], durum: {...} }
 const odalar = {};
 
 function odaKoduUret() {
-  // 6 haneli büyük harf + rakam kodu: WECODE tarzı
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let kod = '';
   for (let i = 0; i < 6; i++) {
@@ -36,19 +28,15 @@ function odaKoduUret() {
   return kod;
 }
 
-// ---- SOCKET BAĞLANTILARI ----
 io.on('connection', (socket) => {
-  console.log(`Yeni bağlantı: ${socket.id}`);
+  console.log('Yeni baglanti: ' + socket.id);
 
-  // ── ODA OLUŞTUR ──
   socket.on('oda_olustur', ({ oyuncuAdi }) => {
     let kod;
     do { kod = odaKoduUret(); } while (odalar[kod]);
 
     odalar[kod] = {
       oyuncular: [{ id: socket.id, ad: oyuncuAdi, numara: 1 }],
-      oyunDurumu: null,
-      basladi: false,
     };
 
     socket.join(kod);
@@ -56,26 +44,24 @@ io.on('connection', (socket) => {
     socket.oyuncuNumarasi = 1;
 
     socket.emit('oda_olusturuldu', { odaKodu: kod, oyuncuNumarasi: 1 });
-    console.log(`Oda oluşturuldu: ${kod} — ${oyuncuAdi}`);
+    console.log('Oda olusturuldu: ' + kod + ' - ' + oyuncuAdi);
   });
 
-  // ── ODAYA KATIL ──
   socket.on('odaya_katil', ({ odaKodu, oyuncuAdi }) => {
     const oda = odalar[odaKodu];
 
     if (!oda) {
-      socket.emit('hata', { mesaj: 'Bu oda kodu bulunamadı! Tekrar kontrol et.' });
+      socket.emit('hata', { mesaj: 'Bu oda kodu bulunamadi! Tekrar kontrol et.' });
       return;
     }
 
-    // Aynı socket zaten bu odadaysa reddet
     if (oda.oyuncular.find(o => o.id === socket.id)) {
-      socket.emit('hata', { mesaj: 'Zaten bu odadasın! Farklı bir tarayıcıdan dene.' });
+      socket.emit('hata', { mesaj: 'Zaten bu odadasin!' });
       return;
     }
 
     if (oda.oyuncular.length >= 2) {
-      socket.emit('hata', { mesaj: 'Bu oda dolu! Farklı bir kod dene.' });
+      socket.emit('hata', { mesaj: 'Bu oda dolu! Farkli bir kod dene.' });
       return;
     }
 
@@ -84,7 +70,6 @@ io.on('connection', (socket) => {
     socket.odaKodu = odaKodu;
     socket.oyuncuNumarasi = 2;
 
-    // Her iki oyuncuya da bildir
     socket.emit('odaya_katilindi', {
       odaKodu,
       oyuncuNumarasi: 2,
@@ -96,50 +81,47 @@ io.on('connection', (socket) => {
       oyuncu2Adi: oda.oyuncular[1].ad,
     });
 
-    console.log(`${oyuncuAdi} odaya katıldı: ${odaKodu}`);
+    console.log(oyuncuAdi + ' odaya katildi: ' + odaKodu);
   });
 
-  // ── HAMLE GEL ──
-  // Bir oyuncu hamle yapınca diğerine ilet
   socket.on('hamle', ({ odaKodu, hamleTipi, veri }) => {
-    const oda = odalar[odaKodu];
-    if (!oda) return;
-
-    // Sadece diğer oyuncuya gönder
     socket.to(odaKodu).emit('rakip_hamle', { hamleTipi, veri });
-    console.log(`Hamle: Oda ${odaKodu} — ${hamleTipi}`);
   });
 
-  // ── OYUN BİTTİ ──
   socket.on('oyun_bitti', ({ odaKodu, kazananNumara }) => {
     socket.to(odaKodu).emit('oyun_bitti_bildir', { kazananNumara });
   });
 
-  // ── YENİDEN OYNA ──
   socket.on('yeniden_oyna', ({ odaKodu }) => {
-    const oda = odalar[odaKodu];
-    if (!oda) return;
     io.to(odaKodu).emit('oyun_sifirla');
   });
 
-  // ── BAĞLANTI KESİLDİ ──
   socket.on('disconnect', () => {
     const kod = socket.odaKodu;
     if (!kod || !odalar[kod]) return;
 
-    // Odadaki diğer oyuncuya bildir
-    socket.to(kod).emit('rakip_ayrildi', {
-      mesaj: 'Rakibin bağlantısı kesildi. Oyun sona erdi.'
-    });
+    const oda = odalar[kod];
+    oda.oyuncular = oda.oyuncular.filter(o => o.id !== socket.id);
+    console.log('Oyuncu ayrildi: ' + kod + ', kalan: ' + oda.oyuncular.length);
 
-    // Odayı temizle
-    delete odalar[kod];
-    console.log(`Oda silindi: ${kod}`);
+    if (oda.oyuncular.length > 0) {
+      socket.to(kod).emit('rakip_ayrildi', {
+        mesaj: 'Rakibin baglantisi kesildi.'
+      });
+      setTimeout(() => {
+        if (odalar[kod] && odalar[kod].oyuncular.length === 0) {
+          delete odalar[kod];
+          console.log('Oda silindi (bos): ' + kod);
+        }
+      }, 30000);
+    } else {
+      delete odalar[kod];
+      console.log('Oda silindi: ' + kod);
+    }
   });
 });
 
-// ---- SUNUCUYU BAŞLAT ----
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`✅ Wecode sunucu çalışıyor: http://localhost:${PORT}`);
+  console.log('Wecode sunucu calisiyor: http://localhost:' + PORT);
 });
