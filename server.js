@@ -15,11 +15,11 @@ const io     = new Server(server, {
 });
 
 // Statik dosyaları sun (HTML, CSS, JS, sesler)
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Ana sayfa
 app.get('/', (req, res) => {
-res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ---- ODA YÖNETİMİ ----
@@ -67,12 +67,15 @@ io.on('connection', (socket) => {
       socket.emit('hata', { mesaj: 'Bu oda kodu bulunamadı! Tekrar kontrol et.' });
       return;
     }
-    if (oda.oyuncular.length >= 2) {
-      socket.emit('hata', { mesaj: 'Bu oda dolu! Farklı bir kod dene.' });
+
+    // Aynı socket zaten bu odadaysa reddet
+    if (oda.oyuncular.find(o => o.id === socket.id)) {
+      socket.emit('hata', { mesaj: 'Zaten bu odadasın! Farklı bir tarayıcıdan dene.' });
       return;
     }
-    if (oda.basladi) {
-      socket.emit('hata', { mesaj: 'Oyun zaten başladı!' });
+
+    if (oda.oyuncular.length >= 2) {
+      socket.emit('hata', { mesaj: 'Bu oda dolu! Farklı bir kod dene.' });
       return;
     }
 
@@ -93,7 +96,6 @@ io.on('connection', (socket) => {
       oyuncu2Adi: oda.oyuncular[1].ad,
     });
 
-    oda.basladi = true;
     console.log(`${oyuncuAdi} odaya katıldı: ${odaKodu}`);
   });
 
