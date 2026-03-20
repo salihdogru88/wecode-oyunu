@@ -33,7 +33,13 @@ let beniminSiram = true;
 let socket = null;
 let odaKodum = null;
 let eslemeKuyrukta = false;
-
+// --- ANA MENÜ BUTONLARI İÇİN EKLEME ---
+function zorlukSec(seviye) {
+    yzSeviye = seviye; // Seçilen zorluğu kaydet
+    mod = 'bilgisayar'; // Modu ayarla
+    console.log("Seçilen zorluk:", seviye);
+    ekranGoster('ekran-oyuncu-giris'); // Oyuncu adı girme ekranını aç
+}
 // ============================================================
 //  MOD SEÇİMİ
 // ============================================================
