@@ -622,3 +622,18 @@ body::before {
   .seviye-kartlar { gap: 8px; }
   .seviye-kart { width: 95px; }
 }
+
+/* Görseldeki turuncu kabartmalı taş tasarımı */
+.kare-tas {
+  background: linear-gradient(145deg, #ff9f43, #ee5253) !important;
+  box-shadow: 0 4px 0 #b33939, 1px 4px 6px rgba(0,0,0,0.4) !important;
+  color: #1a1a1a !important; /* İşaretler siyah */
+  font-weight: 900;
+  border-radius: 8px;
+}
+
+/* Wecode (Yıldız) taşı sarımsı olsun */
+.tip-wecode {
+  background: linear-gradient(145deg, #feca57, #ff9f43) !important;
+  box-shadow: 0 4px 0 #ee5253 !important;
+}
