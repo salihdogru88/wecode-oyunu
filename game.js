@@ -56,7 +56,10 @@ function modSec(secilen) {
     eslemeBaslat();
   }
 }
-
+// HTML'deki butonların (zorlukSec) senin fonksiyonunla (bilgisayarOyunuBaslat) konuşmasını sağlar:
+function zorlukSec(seviye) {
+    bilgisayarOyunuBaslat(seviye);
+}
 function bilgisayarOyunuBaslat(seviye) {
   yzSeviye = seviye;
   const ad = document.getElementById('giris-isim').value.trim() || 'Oyuncu';
