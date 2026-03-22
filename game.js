@@ -1157,3 +1157,13 @@ function anaMenuye() {
 document.addEventListener('DOMContentLoaded', () => {
   ekranGoster('ekran-menu');
 });
+// HTML'deki butonların çalışması için gereken köprü fonksiyonlar
+function zorlukSec(seviye) {
+  bilgisayarOyunuBaslat(seviye);
+}
+
+function oyunuBaslat() {
+  // Eğer iki kişilik yerel mod kullanacaksan buraya yeniOyunBaslat() ekleyebilirsin
+  // Şimdilik ana menüdeki akışa göre bilgisayar modunu tetikliyoruz
+  ekranGoster('ekran-oyun');
+}
